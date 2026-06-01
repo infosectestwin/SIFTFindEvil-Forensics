@@ -1,0 +1,145 @@
+================================================================================
+MEMORY TRIAGE REPORT — rd01-memory.img
+Analyst  : DFIR Orchestrator (Claude Code / find-evil MCP)
+Date     : 2026-05-29T03:40:22Z (analysis date)
+Image    : /cases/memory/rd01-memory.img
+================================================================================
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. SYSTEM PROFILE  (windows.info)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+OS            : Windows 10 x64  (NtMajorVersion 10.0, Build 19041 / 20H1 / 2004)
+Architecture  : 64-bit, non-PAE  (Intel64 / AMD64)
+Kernel base   : 0xf8025d600000
+DTB           : 0x1ad000
+CPUs          : 4 (KeNumberProcessors)
+System time   : 2020-11-16 02:32:38 UTC  ← memory capture timestamp
+NT root       : C:\WINDOWS
+Product type  : NtProductWinNt (workstation SKU)
+PE timestamp  : 2023-08-27 22:21:11 UTC  (ntoskrnl.exe build date)
+Symbols       : ntkrnlmp.pdb / 15B12C74F0E177581B6B27DD4C5022C2-1
+
+System has been running since 2020-11-11 08:13:00 UTC (~5 days before capture).
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2. PROCESS LIST SUMMARY  (windows.pslist)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Total process entries   : 2186  (includes historical exited processes)
+Active at capture       : 206
+0-thread running procs  : 0     (no obvious process hollowing via thread count)
+
+--- Process tree health ---
+Standard system process chain verified:
+  System(4) → smss.exe(440) → wininit.exe(752) → services.exe(828)
+                            → csrss.exe(664)
+             winlogon.exe(896) → userinit.exe(7404) → explorer.exe(7464)
+  lsass.exe(840) ← wininit.exe(752)  ✓ correct parent
+
+No cmd.exe, powershell.exe, or common LOLBin names visible in pslist
+(note: ImageFileName is truncated to 14 chars; cmdline follow-up recommended).
+
+--- Notable processes ---
+
+[PRIORITY 1 — INVESTIGATE]
+  MRC.exe  PID 29440  PPID 7464 (explorer.exe)
+  Created  : 2020-11-16 02:31:15 UTC  (83 seconds before capture)
+  Status   : RUNNING at capture  (no ExitTime)
+  Wow64    : True  (32-bit process on 64-bit OS)
+  Offset   : 0xb78d106d2080
+  Notes    :
+    - User-launched from explorer.exe ~90 sec before memory was acquired.
+    - SmartScreen (PID 19348) ran at 02:30:38 — 37 seconds BEFORE MRC.exe
+      started — consistent with Windows evaluating a new/unsigned executable.
+    - MRC.exe can refer to Microsoft Remote Connectivity Analyzer (legitimate)
+      or may be a maliciously named binary; disk artifact verification required.
+    - 32-bit (Wow64=True) is consistent with many commodity RAT/tool builds.
+  ACTION   : Recover MRC.exe from disk image → verify path, digital signature,
+             compilation timestamp, and PE hash against threat intel.
+             Run windows.cmdline and windows.dlllist against PID 29440.
+
+[NOTABLE — LOW SUSPICION]
+  iCloudIE.exe  PID 27740  PPID 11004 (NOT FOUND IN LIST)
+  Created : 2020-11-16 00:14:48 UTC  |  Status: RUNNING
+  Wow64   : True  (expected — Apple's IE helper is a 32-bit COM object)
+  Notes   : Parent PID 11004 is absent from pslist. The iCloud suite commonly
+            spawns helpers whose parents exit after delegation; orphaned parent
+            is expected behavior here. Low priority unless other iCloud
+            artifacts are anomalous.
+
+[NOTABLE — INFORMATIONAL]
+  Teams.exe  : 1901 total entries, 1 still running (PID 17560, PPID 11672)
+  The active Teams.exe root (PID 11672) has 45 threads and has run since
+  2020-11-11 08:14:07 UTC. Its parent (PID 8908) exited normally on
+  2020-11-13. The 1901 instances reflect Teams' Electron architecture
+  spawning short-lived renderer/helper sub-processes over 5 days; typical
+  behavior for an active Teams installation.
+
+--- Recently started processes (00:30–02:32 UTC, still running at capture) ---
+  PID  6688   WmiPrvSE.exe    PPID 740    Created 02:29:36  — WMI host (normal)
+  PID 14152   WUDFHost.exe    PPID 828    Created 02:29:36  — USB driver host
+  PID 30012   WinStore.App.e  PPID 740    Created 02:30:21  — MS Store app
+  PID 19348   smartscreen.ex  PPID 740    Created 02:30:38  — AppRep check ⚠
+  PID 29440   MRC.exe         PPID 7464   Created 02:31:15  — SEE PRIORITY 1
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+3. NETWORK CONNECTIONS  (windows.netscan / windows.netstat)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Status: NOT RECOVERED — two blocking issues
+
+  windows.netscan : TIMEOUT (×2 attempts, 300s MCP limit exceeded)
+  windows.netstat : FAILED — tcpip.pdb symbol file unavailable
+    Error: "Unable to locate symbols for the memory image's tcpip module"
+    Symbol GUID: EC772DA440303B98B92C2CEE6D761F55-1
+
+Remediation required before network data can be obtained:
+  Option A — Fix symbol cache permissions and re-run netstat:
+    sudo chown -R $(whoami) /opt/volatility3/lib/python3.12/site-packages/volatility3/symbols/
+    python3 /opt/volatility3-2.20.0/vol.py -f /cases/memory/rd01-memory.img windows.netstat
+
+  Option B — Run netscan directly from CLI (no 300s cap):
+    python3 /opt/volatility3-2.20.0/vol.py -f /cases/memory/rd01-memory.img windows.netscan
+
+  Option C — Manual symbol fetch:
+    Download EC772DA440303B98B92C2CEE6D761F55-1.json.xz from Microsoft symbol
+    server and place in a writable symbols directory, then re-run.
+
+See: reports/2026-05-29_windows.netscan_report.txt for full error output.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+4. RECOMMENDED NEXT STEPS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Priority  Task
+────────  ──────────────────────────────────────────────────────────────────
+HIGH      Fix Volatility tcpip symbols and re-run windows.netstat / netscan.
+          Network visibility is critical given MRC.exe activity.
+
+HIGH      Run windows.cmdline on PID 29440 (MRC.exe) to recover full
+          command-line arguments and confirm launch path.
+
+HIGH      Run windows.dlllist on PID 29440 to check for injected DLLs or
+          unusual module load order.
+
+HIGH      Recover MRC.exe binary from disk image and hash-check against
+          VirusTotal / enterprise threat intel.
+
+MEDIUM    Run windows.psscan to detect any processes hidden from pslist
+          (rootkit/DKOM detection).
+
+MEDIUM    Run windows.malfind on PID 29440 and active session processes
+          for VAD-based injected code detection.
+
+LOW       Investigate iCloudIE.exe parent (PID 11004) via psscan if
+          process hiding is suspected.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+5. ARTIFACT MANIFEST
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  reports/2026-05-29_windows.info_report.txt   — raw windows.info output
+  reports/2026-05-29_windows.pslist_report.txt — raw windows.pslist output (full)
+  reports/2026-05-29_windows.netscan_report.txt — netscan failure documentation
+  reports/2026-05-29_memory_triage_report.txt  — this file
+  logs/execution_history.log                   — MCP tool execution audit trail
+
+================================================================================
+END OF REPORT
+================================================================================

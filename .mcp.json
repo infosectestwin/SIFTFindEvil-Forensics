@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "find-evil": {
+      "command": "python3",
+      "args": ["/home/sansforensics/SIFTFindEvil/server.py"]
+    }
+  }
+}

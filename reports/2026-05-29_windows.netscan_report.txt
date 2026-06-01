@@ -1,0 +1,40 @@
+================================================================================
+NETWORK ANALYSIS REPORT — /cases/memory/rd01-memory.img
+Plugin(s) attempted: windows.netscan, windows.netstat (fallback)
+Date: 2026-05-29T03:40:22Z
+================================================================================
+
+ATTEMPT 1: windows.netscan
+  Run 1: TIMEOUT — Command exceeded 300s MCP timeout (parallel execution context)
+  Run 2: TIMEOUT — Command exceeded 300s MCP timeout (solo retry)
+  Note : windows.netscan performs a full pool-tag scan of physical memory and
+         is known to be significantly slower than netstat. The 300-second MCP
+         server timeout is insufficient for this image size.
+
+ATTEMPT 2: windows.netstat (fallback)
+  Return code: 0
+  Stdout: Header row only — no connection rows returned.
+  Stderr warnings:
+    WARNING: Cannot write necessary symbol file:
+      /opt/volatility3/.../symbols/windows/tcpip.pdb/EC772DA440303B98B92C2CEE6D761F55-1.json.xz
+    WARNING: Cannot write downloaded symbols — add a writable symbols directory
+    ERROR:   Unable to locate symbols for the memory image's tcpip module
+
+ROOT CAUSE:
+  Volatility 3 requires tcpip.pdb symbol data to resolve network structures for
+  this build (EC772DA440303B98B92C2CEE6D761F55-1). The process running the MCP
+  server lacks write permission to the Volatility symbols cache directory, so
+  the symbol file could not be downloaded and persisted. Without it, netstat
+  cannot resolve TCP/IP kernel structures and returns no rows.
+
+RECOMMENDED REMEDIATION:
+  1. Fix symbol cache permissions:
+       sudo chown -R <mcp-user> /opt/volatility3/lib/python3.12/site-packages/volatility3/symbols/
+     OR configure a writable symbol path:
+       export VOLATILITY_SYMBOL_CACHE=~/.cache/volatility3/symbols
+  2. Re-run windows.netstat after symbols are cached.
+  3. Alternatively, run windows.netscan directly from the CLI (no 300s cap):
+       python3 /opt/volatility3-2.20.0/vol.py -f /cases/memory/rd01-memory.img windows.netscan
+
+NO NETWORK CONNECTION DATA RECOVERED IN THIS SESSION.
+================================================================================

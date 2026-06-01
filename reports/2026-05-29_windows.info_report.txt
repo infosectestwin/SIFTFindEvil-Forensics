@@ -1,0 +1,24 @@
+Volatility 3 Framework 2.27.0
+
+Variable	Value
+
+Kernel Base	0xf8025d600000
+DTB	0x1ad000
+Symbols	file:///opt/volatility3/lib/python3.12/site-packages/volatility3/symbols/windows/ntkrnlmp.pdb/15B12C74F0E177581B6B27DD4C5022C2-1.json.xz
+Is64Bit	True
+IsPAE	False
+layer_name	0 WindowsIntel32e
+memory_layer	1 FileLayer
+KdVersionBlock	0xf8025e20f340
+Major/Minor	15.19041
+MachineType	34404
+KeNumberProcessors	4
+SystemTime	2020-11-16 02:32:38+00:00
+NtSystemRoot	C:\WINDOWS
+NtProductType	NtProductWinNt
+NtMajorVersion	10
+NtMinorVersion	0
+PE MajorOperatingSystemVersion	10
+PE MinorOperatingSystemVersion	0
+PE Machine	34404
+PE TimeDateStamp	Sun Aug 27 22:21:11 2023

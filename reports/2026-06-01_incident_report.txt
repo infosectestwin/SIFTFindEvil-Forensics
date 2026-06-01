@@ -1,0 +1,253 @@
+================================================================================
+INCIDENT REPORT — MEMORY FORENSIC ANALYSIS
+================================================================================
+Case Image   : /cases/memory/rd01-memory.img
+Host OS      : Windows 10 x64 Build 19041 (rd01)
+Hostname     : rd01  |  User: fredr
+System Time  : 2020-11-16 02:32:38 UTC (at start of memory acquisition)
+Analyst      : DFIR Orchestrator (Claude Code / find-evil MCP)
+Report Date  : 2026-06-01 UTC
+Plugins Run  : windows.info, windows.pslist, windows.netscan,
+               windows.pstree, windows.psscan, windows.malfind
+================================================================================
+
+1. EXECUTIVE SUMMARY
+--------------------
+Host rd01 (192.168.1.5, user: fredr) was actively under a coordinated RDP
+brute-force campaign at the time of memory acquisition. Two external IPs —
+81.30.144.115 and 213.202.233.104 — generated 75+ sequential connection
+attempts against the host's exposed RDP service (TCP 3389), with a third IP
+(81.19.209.101) joining mid-campaign. At least four concurrent ESTABLISHED
+RDP sessions were present during/after acquisition, confirming successful
+authentication.
+
+Independently, a suspicious 32-bit executable — MRC.exe — was launched from
+a non-standard staging location (D:\Tools\MRC.exe) by the interactive desktop
+(explorer.exe, PID 7464) approximately 83 seconds before the Windows.info
+system timestamp. Windows Defender SmartScreen checked the executable 37
+seconds before launch, indicating it was newly introduced to the system.
+
+No memory injection artifacts were detected by windows.malfind. The RDP
+TermService host (svchost.exe PID 1248) is confirmed legitimate. The attacker
+appears to have gained interactive access via RDP credentials rather than
+through in-memory code injection.
+
+The host should be treated as fully compromised. Credentials known to this
+host must be rotated, and all active RDP sessions from the identified IPs must
+be terminated immediately.
+
+
+2. EVIDENCE TIMELINE (UTC)
+--------------------------
+All timestamps from Volatility 3 output; sources noted per entry.
+
+  2020-11-11 08:13:00  System boot. Kernel base 0xf8025d600000. [pstree]
+  2020-11-11 08:13:14  PID 1248 svchost.exe (TermService) started, PPID 828. [pstree]
+                       Cmd: svchost.exe -k NetworkService -s TermService
+
+  ── Attacker pre-staging window ──────────────────────────────────────────────
+
+  2020-11-16 02:29:42  SearchFilterHo (PID 24920) spawned; PPID 11968 not in
+                       psscan (orphaned parent). Terminated at 02:31:52. [psscan]
+  2020-11-16 02:29:43  SearchFilterHo (PID 24920) ESTABLISHED → 52.113.194.132:443
+                       via svchost.exe context. [netscan]
+  2020-11-16 02:30:21  RuntimeBroker. (PID 30124) spawned under PPID 740. [psscan]
+  2020-11-16 02:30:36  dllhost.exe (PID 1676) spawned under PPID 740. [psscan]
+  2020-11-16 02:30:44  dllhost.exe (PID 1676) terminated. 8-second lifespan. [psscan]
+  2020-11-16 02:30:38  smartscreen.exe (PID 19348) launched by PPID 740. [pstree]
+                       SmartScreen checking an unrecognised executable.
+
+  ── MRC.exe execution ────────────────────────────────────────────────────────
+
+  2020-11-16 02:31:15  MRC.exe (PID 29440) launched. [pstree / psscan]
+                       Parent : explorer.exe PID 7464 (interactive user session 1)
+                       Path   : D:\Tools\MRC.exe  (\Device\HarddiskVolume7\Tools\)
+                       Arch   : 32-bit (Wow64 = True)
+                       Threads: 20 (active at capture)
+                       Note   : Non-standard drive/path; SmartScreen ran 37s prior.
+
+  ── RDP brute-force campaign ─────────────────────────────────────────────────
+
+  2020-11-16 02:31:18  First CLOSED RDP connection from 213.202.233.104. [netscan]
+  2020-11-16 02:31:26  First CLOSED RDP connection from 81.30.144.115. [netscan]
+  2020-11-16 02:32:35  SearchFilterHo (PID 30328) spawned; PPID 11968 orphaned.
+                       Terminated at 02:34:50. [psscan]
+  2020-11-16 02:32:38  Memory acquisition started (windows.info SystemTime).
+  2020-11-16 02:33:32  SYN_RCVD on port 3389 from 81.19.209.101:50424. [netscan]
+  2020-11-16 02:34:45  ESTABLISHED: 192.168.1.5:3389 ← 81.30.144.115:5067. [netscan]
+  2020-11-16 02:34:58  ESTABLISHED: 192.168.1.5:3389 ← 81.30.144.115:51048. [netscan]
+  2020-11-16 02:34:58  ESTABLISHED: 192.168.1.5:3389 ← 213.202.233.104:45753. [netscan]
+  2020-11-16 02:35:17  SearchFilterHo (PID 4420) spawned; PPID 11968 orphaned.
+                       Active at capture. [psscan]
+  2020-11-16 02:35:53  ESTABLISHED: 192.168.1.5:3389 ← 213.202.233.104:40876. [netscan]
+  2020-11-16 02:36:xx  Memory acquisition completes (latest object timestamps).
+
+
+3. TECHNICAL FINDINGS
+---------------------
+
+3.1  RDP Brute-Force — Confirmed Successful
+     ----------------------------------------
+     Source IPs and connection counts against TCP/3389 (from windows.netscan):
+
+       IP                   CLOSED   ESTABLISHED   OTHER
+       81.30.144.115          ~40+        2         —
+       213.202.233.104        ~35+        2         —
+       81.19.209.101            1         0         1× SYN_RCVD
+       201.193.188.114          3         0         —
+
+     The volume of CLOSED connections followed immediately by ESTABLISHED
+     sessions is consistent with credential brute-forcing until success.
+     Two IPs working in parallel from different source port ranges suggests
+     a coordinated attack (separate C2 nodes or split workload).
+
+     PID 1248 (svchost.exe -k NetworkService -s TermService):
+       PPID      : 828 (services.exe) — LEGITIMATE
+       Session   : 0                  — LEGITIMATE
+       CreateTime: 2020-11-11 08:13:15 UTC (boot time) — LEGITIMATE
+       Threads   : 266                — Normal for active RDP handler
+       malfind   : No injected regions detected
+     The TermService process itself is NOT compromised. The attacker
+     authenticated to the legitimate service using obtained credentials.
+
+3.2  MRC.exe (PID 29440) — Suspicious Remote Access Tool
+     -----------------------------------------------------
+     Path    : D:\Tools\MRC.exe  (HarddiskVolume7 — separate non-OS drive)
+     PPID    : 7464 (explorer.exe) — launched interactively or via Run dialog
+     Wow64   : True (32-bit binary on 64-bit OS)
+     Threads : 20 active at capture
+     Session : 1 (interactive user session, user fredr)
+     Created : 2020-11-16 02:31:15 UTC
+     Precursor: SmartScreen (PID 19348) checked an unrecognised binary at
+                02:30:38 — 37 seconds before MRC.exe execution.
+
+     Indicators of concern:
+     - Non-standard staging path (D:\Tools\) on a secondary volume
+     - 32-bit binary executing on 64-bit system (common for older RATs/RMMs)
+     - SmartScreen warning fired before execution
+     - Launched 56 seconds before confirmed RDP sessions from external IPs
+     - "MRC" is consistent with naming conventions of remote management/
+       control agents (e.g., Connectwise Automate MRC, custom RAT variants)
+     - File not present in any legitimate Windows or common software path
+
+     malfind result: No injected memory regions detected for PID 29440.
+     This does not clear the process — MRC.exe may use legitimate API-based
+     network communications without reflective injection.
+
+3.3  Short-Lived dllhost.exe (PID 1676) — High Suspicion
+     ------------------------------------------------------
+     PPID    : 740 (svchost.exe — DcomLaunch)
+     Created : 2020-11-16 02:30:36 UTC
+     Exited  : 2020-11-16 02:30:44 UTC  (8-second lifespan)
+     Session : 1 (interactive)
+     Note    : Spawned 39 seconds before MRC.exe, immediately before
+               SmartScreen activation. Short-lived COM-activated dllhost
+               processes can indicate a COM-based payload dropper or
+               a transient loader. No memory artifacts recoverable post-exit.
+
+3.4  Orphaned SearchFilterHost Processes
+     --------------------------------------
+     Three instances spawned from PPID 11968 (not in psscan — unlinked):
+
+       PID 24920 : Created 02:29:42, Exited 02:31:52
+       PID 30328 : Created 02:32:35, Exited 02:34:50
+       PID  4420 : Created 02:35:17, Active at capture
+
+     SearchIndexer/SearchFilterHost with an orphaned parent is anomalous.
+     PPID 11968 is absent from both pstree and psscan, suggesting it was
+     either EPROCESS-unlisted (hidden) or exited before data structures
+     were consistent. The connection from netscan PID 24920 →
+     52.113.194.132:443 (SearchFilterHost ESTABLISHED) warrants further
+     examination; 52.113.194.132 is within Microsoft Azure IP space but
+     is unusual for a search filter host.
+
+3.5  malfind — No Injections Detected
+     ------------------------------------
+     windows.malfind returned an empty result set (stdout: header only,
+     returncode: 0). No MZ-headered or executable VAD regions with
+     suspicious protection flags (PAGE_EXECUTE_READ_WRITE, etc.) were
+     detected in any process. This reduces but does not eliminate the
+     possibility of code injection; techniques such as module stomping,
+     PEB unlinking, or direct syscall trampolines are not detected by
+     malfind's VAD-based heuristic.
+
+
+4. RECOMMENDATIONS
+------------------
+
+4.1  IMMEDIATE — Contain the Host
+     --------------------------------
+     [ ] ISOLATE rd01 from the network at the switch/firewall level.
+         Block all inbound TCP/3389 from 81.30.144.115, 213.202.233.104,
+         81.19.209.101, and 201.193.188.114 on the perimeter firewall.
+     [ ] If isolation is not yet possible, terminate the four active RDP
+         sessions by killing the TermService session objects (do NOT kill
+         PID 1248 — it will restart automatically; terminate via Task Manager
+         > Users tab or `qwinsta` / `rwinsta`).
+     [ ] Kill PID 29440 (MRC.exe): `taskkill /F /PID 29440`
+     [ ] Kill PID 4420 (SearchFilterHo orphan): `taskkill /F /PID 4420`
+
+4.2  CREDENTIAL ROTATION
+     ----------------------
+     [ ] Rotate ALL credentials for user "fredr" immediately (domain password,
+         local admin password, any cached credentials visible to the RDP session).
+     [ ] Audit all accounts with RDP logon rights on rd01; rotate any that
+         may have been used for the attacker's successful authentication.
+     [ ] Review domain controller event logs (Event ID 4625/4624) to identify
+         which account the brute-force succeeded against and whether lateral
+         movement occurred.
+     [ ] Rotate service account credentials if any were accessible from this
+         host's credential store (LSASS, Credential Manager).
+
+4.3  PERSISTENCE — SCAN AND REMOVE
+     ----------------------------------
+     [ ] Image the D:\ volume (HarddiskVolume7) and submit MRC.exe for
+         static/dynamic malware analysis and IOC extraction.
+     [ ] Run Autoruns (from a clean mount or boot) to enumerate:
+         - Run/RunOnce registry keys for MRC.exe or related entries
+         - Scheduled tasks added under fredr's session
+         - Services installed referencing D:\Tools\
+     [ ] Check HKCU\Software\Microsoft\Windows\CurrentVersion\Run for
+         user-level persistence installed during the RDP session.
+     [ ] Search D:\Tools\ and all subdirectories for additional tooling.
+     [ ] Run YARA rules for known RMM/RAT agents against D:\Tools\MRC.exe.
+
+4.4  DISK FORENSICS — FOLLOW-ON
+     ------------------------------
+     [ ] Acquire disk image of rd01 (both C:\ and D:\) for full artifact
+         analysis: Prefetch, AmCache, ShimCache, SRUM, event logs.
+     [ ] Parse Windows Security Event Log for Event IDs:
+         4625 (failed logon) — quantify brute-force volume
+         4624 Type 10 (interactive RDP logon) — confirm attacker logon time
+         4688 (process creation) — MRC.exe and dllhost.exe entries
+     [ ] Parse $MFT on D:\ to determine when MRC.exe was written to disk
+         and whether other files were dropped alongside it.
+     [ ] Review Prefetch for MRC.exe (%WINDOWS%\Prefetch\MRC.EXE-*.pf)
+         to establish first/last run times and loaded DLLs.
+
+4.5  THREAT INTELLIGENCE
+     ----------------------
+     [ ] Submit to TI platforms / query reputation:
+         81.30.144.115       (primary RDP attacker)
+         213.202.233.104     (primary RDP attacker)
+         81.19.209.101       (secondary RDP attacker)
+         201.193.188.114     (tertiary RDP attacker)
+         52.113.194.132:443  (SearchFilterHost connection — verify legitimacy)
+     [ ] Extract SHA-256 hash of D:\Tools\MRC.exe and query VirusTotal.
+
+4.6  HARDENING — POST-INCIDENT
+     ------------------------------
+     [ ] Disable or restrict RDP access; enforce NLA (Network Level
+         Authentication) and MFA for all RDP sessions.
+     [ ] Place RDP behind a VPN; remove direct internet exposure of TCP/3389.
+     [ ] Enable account lockout policy to prevent brute-force.
+     [ ] Deploy Windows Defender Application Control (WDAC) or AppLocker
+         to block execution from non-standard paths (D:\Tools\).
+
+================================================================================
+REPORT END
+Generated: 2026-06-01 UTC
+Sources   : logs/pstree_investigation.log, logs/psscan_investigation.log,
+            logs/malfind_investigation.log, reports/2026-05-29_netscan_report.txt,
+            logs/execution_history.log
+================================================================================

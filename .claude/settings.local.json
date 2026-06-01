@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__find-evil__analyze_memory",
+      "Bash(cp /home/sansforensics/.claude/projects/-home-sansforensics-SIFTFindEvil/00ac2249-0afb-4b2a-9701-e4ac3fc77807/tool-results/mcp-find-evil-analyze_memory-1780107808395.txt /home/sansforensics/SIFTFindEvil/logs/psscan_investigation.log)",
+      "Bash(cp \"/home/sansforensics/.claude/projects/-home-sansforensics-SIFTFindEvil/00ac2249-0afb-4b2a-9701-e4ca3fc77807/tool-results/mcp-find-evil-analyze_memory-1780107808395.txt\" /home/sansforensics/SIFTFindEvil/logs/psscan_investigation.log)"
+    ]
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "find-evil"
+  ]
+}
